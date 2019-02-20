@@ -1,7 +1,10 @@
 ﻿using Loop.Api.Models;
 using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Loop.Api.Controllers
 {
@@ -9,42 +12,63 @@ namespace Loop.Api.Controllers
     [ApiController]
     public class ReservationController : ControllerBase
     {
-        public IRepository repository { get; set; }
+        private ReservationContext ReservationContext;
 
-        public ReservationController(IRepository repo) => repository = repo;
+        public ReservationController(ReservationContext reservationContext)
+        {
+            ReservationContext = reservationContext;
+
+            if (ReservationContext.Reservations.Count() == 0)
+            {
+                ReservationContext.Reservations.Add(new Reservation { ClientName = "Alice", Location = "Board Room" });
+                ReservationContext.Reservations.Add(new Reservation { ClientName = "Bob", Location = "Lecture Hall" });
+                ReservationContext.Reservations.Add(new Reservation { ClientName = "Joe", Location = "Meeting Room 1" });
+                ReservationContext.Reservations.Add(new Reservation { ClientName = "Loop In Accounting", Location = "Helicopter Pad" });
+                ReservationContext.SaveChanges();
+            }
+        }
 
         [HttpGet]
-        public IEnumerable<Reservation> Get() => repository.Reservations;
-        
+        public async Task<IEnumerable<Reservation>> Get() => await ReservationContext.Reservations.AsNoTracking().ToListAsync();
+
         [HttpGet("{id}")]
-        public Reservation Get(int id) => repository[id];
+        public async Task<Reservation> Get(int id) => await ReservationContext.Reservations.FindAsync(id);
 
         [HttpPost]
-        public Reservation Post([FromBody] Reservation res) =>
-            repository.AddReservation(new Reservation
-            {
-                ClientName = res.ClientName,
-                Location = res.Location
-            });
+        public async Task<Reservation> Post([FromBody] Reservation res)
+        {
+            await ReservationContext.Reservations.AddAsync(res);
+            await ReservationContext.SaveChangesAsync();
+            return await ReservationContext.Reservations.FindAsync(res.ReservationId);
+        }
 
         [HttpPut]
-        public Reservation Put([FromBody] Reservation res) =>
-            repository.UpdateReservation(res);
+        public async Task<Reservation> Put([FromBody] Reservation res)
+        {
+            ReservationContext.Reservations.Update(res);
+            await ReservationContext.SaveChangesAsync();
+
+            return await ReservationContext.Reservations.FindAsync(res.ReservationId);
+        }
 
         [HttpPatch("{id}")]
-        public StatusCodeResult Patch(int id,
+        public async Task<StatusCodeResult> Patch(int id,
         [FromBody]JsonPatchDocument<Reservation> patch)
         {
-            Reservation res = Get(id);
-            if (res != null)
+            Reservation reservation = await ReservationContext.Reservations.FindAsync(id);
+            if (reservation != null)
             {
-                patch.ApplyTo(res);
+                patch.ApplyTo(reservation);
                 return Ok();
             }
             return NotFound();
         }
-        
+
         [HttpDelete("{id}")]
-        public void Delete(int id) => repository.DeleteReservation(id);
+        public async Task Delete(int id)
+        {
+            ReservationContext.Reservations.Remove(await ReservationContext.Reservations.FindAsync(id));
+            await ReservationContext.SaveChangesAsync();
+        }
     }
 }
